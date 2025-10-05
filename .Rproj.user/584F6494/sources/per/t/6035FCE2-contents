@@ -1,0 +1,826 @@
+#' Relative inequality gap (two input modes)
+#'
+#' Computes the relative inequality gap between the extreme social groups defined based on a
+#' numeric equity stratifier. The function operates in two modes: \strong{(Mode A)} using a numerator and
+#' denominator (\code{health_numerator} and \code{health_denominator}), which is the preferred
+#' and most accurate method, as it relies directly on event counts;
+#' and \strong{(Mode B)} using an aggregated health indicator (\code{health_indicator})
+#' and population weights (\code{population_weights}), which approximates the gap based on weighted group means.
+#' The function also provides automatic interpretations of the results in
+#' four languages: Spanish, English, French, and Portuguese.
+#'
+#' In both cases, the social stratifier is grouped into \code{n_groups} using the selected method (e.g., quantiles),
+#' ensuring that \emph{group 1} corresponds to the most disadvantaged group and the last group to the most advantaged
+#' (as defined by \code{higher_ineq_is_favorable}). The relative gap is calculated as the ratio in the health indicator \eqn{y}
+#' —defined as the mean value of the indicator within each group— between the most disadvantaged and the most advantaged groups: \eqn{\mathrm{RG} = y_{\text{disadvantaged}} / y_{\text{advantaged}}}.
+#'
+#' @param health_indicator Numeric vector with the health indicator values (e.g., \code{c(0.12, 0.34)} for proportions or \code{c(120, 345)} for rates). Used only in Mode B.
+#' @param health_numerator Numeric vector with event counts (e.g., \code{c(5, 12, 8)} for deaths). Used only in Mode A.
+#' @param health_denominator Numeric vector > 0 representing the denominator associated with \code{health_numerator} (e.g., \code{c(500, 1000, 800)}). Used only in Mode A.
+#' @param equity_stratifier Numeric stratifier (e.g., poverty rate or education index; \code{c(0.1, 0.3, 0.5)}).
+#' @param population_weights Numeric vector > 0 with weights (e.g., population per unit: \code{c(1000, 5000, 1200)}). Same length as \code{health_indicator}. Used only in Mode B.
+#' @param higher_ineq_is_favorable Logical; \code{TRUE} if higher values of \code{equity_stratifier} indicate better social conditions (e.g., per capita GDP), and \code{FALSE} if higher values reflect worse conditions (e.g., unmet basic needs index).
+#' @param health_indicator_type String: \code{"proportion"} for bounded indicators in [0,1], or \code{"rate"} if already scaled (e.g., deaths per 100,000).
+#' @param rate_scaling_factor Numeric scalar used only if \code{health_indicator_type = "rate"}; common values: \code{1000} or \code{100000} (e.g., maternal mortality ratio per 100000 live births).
+#' @param grouping_method String defining how to group the stratifier: \code{"quantiles"}, \code{"equal intervals"}, \code{"manual intervals"}, \code{"k-means"}, \code{"hierarchical clustering"}, \code{"bagging clustering"}, \code{"fisher-jenks"}, \code{"jenks"}, or \code{"maximum differences"}.
+#' @param n_groups Integer >= 2 (e.g., \code{4} for quartiles). Ignored if \code{grouping_method = "manual intervals"}.
+#' @param manual_breaks Numeric vector of cut points (e.g., \code{c(20, 40)} to define [0–20), [20–40), [40+]). Used only if \code{grouping_method = "manual intervals"}.
+#' @param conf_level Numeric value between 0 and 1 (e.g., \code{0.95}) for confidence level of inequality estimates.
+#' @param language_interpretation Character string indicating the language of the automatic interpretation and note. Allowed values: \code{"es"}, \code{"en"}, \code{"fr"}, \code{"pt"}. \code{"es"} = Spanish, \code{"en"} = English, \code{"fr"} = French, \code{"pt"} = Portuguese.
+#'
+#' @return A \code{list} with the following components:
+#' \item{summary_table}{A \code{tibble} with the inequality metric name (\code{inequality_metric}), the estimated relative gap (\code{value}), and its confidence interval bounds (\code{ci_lower}, \code{ci_upper}).}
+#' \item{relative_gap}{Numeric value of the relative gap: interpreted as a ratio between the most disadvantaged and most advantaged groups.}
+#' \item{ci_lower, ci_upper}{Lower and upper bounds of the confidence interval for the relative gap.}
+#' \item{interpretation}{Character string with the automatic interpretation of the result in the selected language.}
+#' \item{note}{Character string with the explanatory note in the selected language, based on the type of health indicator.}
+#' \item{group_summary}{\code{tibble} summarizing the indicator for each social group. Contains either weighted means (Mode B) or raw counts and denominators (Mode A).}
+#' \item{global_health_mean}{Overall mean of the health indicator: weighted average (Mode B) or global rate (Mode A).}
+#' \item{data}{Final \code{tibble} used for the calculation, including processed variables and groupings.}
+#'
+#' @details
+#' \subsection{A) Using numerator and denominator (preferred)}{
+#' When \code{health_numerator} and \code{health_denominator} are provided (Mode A), the function uses actual event counts to compute the relative inequality gap and its confidence interval.
+#'
+#' \itemize{
+#'   \item \strong{Proportions}: The function computes the ratio between the proportions of events in the most disadvantaged and most advantaged groups. Confidence intervals are estimated using \code{epitools::riskratio()}, which implements score-based methods for risk ratios (relative risks) from 2x2 tables.
+#'
+#'   \item \strong{Rates}: The function computes the rate ratio between the two extreme groups. It assumes Poisson-distributed event counts, and confidence intervals are estimated using \code{ratesci::scoreci()} with \code{distrib = "poi"} and \code{contrast = "RR"}, which applies a skewed score-based method for rate ratios.
+#'
+#'   \item \emph{This mode does not rely on population weights}; the inference is based directly on count-level data, yielding more robust and reliable results.
+#' }
+#' }
+#'
+#' \subsection{B) With aggregated indicator weighted by population (approximate)}{
+#' When only aggregate indicators and population weights are available (Mode B), the function approximates the relative gap and its confidence interval using group-level means.
+#'
+#' \itemize{
+#'   \item \strong{Proportions}: The function computes the ratio between the weighted group means. The confidence interval is estimated using a log-transformed Wald method for independent proportions.
+#'
+#'   \item \strong{Rates}: The function computes the rate ratio using estimated event counts derived from the scaled rate and population. The confidence interval is computed using a Wald approximation in the log scale.
+#'
+#'   \item \emph{Warning}: This approach assumes independence and large sample sizes; it may underestimate or overestimate variability, particularly in the presence of aggregation, small counts, or heterogeneity. Use Mode A when possible.
+#' }}
+#'
+#' @note Mode B was developed as an alternative for situations where only aggregated
+#' health indicators (e.g., proportions or rates) are available, and the disaggregated
+#' data (numerator and denominator) is not accessible. Although Mode A is more precise,
+#' Mode B still allows for valid inequality comparisons when only summary data is available.
+#'
+#' @examples
+#' # ——— Mode A (preferred: numerator and denominator) ———
+#'
+#' # Health indicator: Rate. Suppose data1 with:
+#' #   maternal_deaths  = number of maternal deaths.
+#' #   live_births      = number of live births.
+#' #   ubn_percent      = % of population with at least one unmet basic need (higher = worse social status).
+#' data(data1)
+#' rg(
+#'   health_numerator         = data1$maternal_deaths,
+#'   health_denominator       = data1$live_births,
+#'   equity_stratifier        = data1$ubn_percent,
+#'   higher_ineq_is_favorable = FALSE,
+#'   health_indicator_type    = "rate",
+#'   rate_scaling_factor      = 100000,
+#'   grouping_method          = "quantiles",
+#'   n_groups                 = 4,
+#'   conf_level               = 0.95,
+#'   language_interpretation = "en"
+#' )
+#'
+#' # Health indicator: Proportion. Suppose data2 with:
+#' #   skilled_births   = number of births attended by skilled personnel.
+#' #   total_births     = total number of births.
+#' #   ubn_index        = % of population with at least one unmet basic need (higher = worse social status).
+#' rg(
+#'   health_numerator         = data2$skilled_births,
+#'   health_denominator       = data2$total_births,
+#'   equity_stratifier        = data2$ubn_percent,
+#'   higher_ineq_is_favorable = FALSE,
+#'   health_indicator_type    = "proportion",
+#'   grouping_method          = "quantiles",
+#'   n_groups                 = 4,
+#'   conf_level               = 0.95,
+#'   language_interpretation = "en"
+#' )
+#'
+#' # ——— Mode B (aggregated indicator + population as weight) ———
+#'
+#' # Suppose data1 with:
+#' #   mmr       = maternal mortality ratio per 100,000 live births.
+#' #   population = population weight of the unit of analysis.
+#' #   ubn_index = % of population with at least one unmet basic need.
+#' rg(
+#'   health_indicator         = data1$mmr,
+#'   equity_stratifier        = data1$ubn_percent,
+#'   population_weights       = data1$population_zone,
+#'   higher_ineq_is_favorable = FALSE,
+#'   health_indicator_type    = "rate",
+#'   rate_scaling_factor      = 100000,
+#'   grouping_method          = "quantiles",
+#'   n_groups                 = 4,
+#'   conf_level               = 0.95,
+#'   language_interpretation = "en"
+#' )
+#'
+#' # Suppose data2 with:
+#' #   skilled_births_prop = proportion of births attended by skilled personnel (in [0,1]).
+#' #   population           = population weight of the unit of analysis.
+#' #   ubn_index            = % of population with at least one unmet basic need.
+#' rg(
+#'   health_indicator         = data2$skilled_births_prop,
+#'   equity_stratifier        = data2$ubn_percent,
+#'   population_weights       = data2$population,
+#'   higher_ineq_is_favorable = FALSE,         # FALSE: higher UBN = more disadvantaged
+#'   health_indicator_type    = "proportion",  # indicator in [0,1]
+#'   grouping_method          = "quantiles",
+#'   n_groups                 = 4,
+#'   conf_level               = 0.95,
+#'   language_interpretation = "en"
+#' )
+#'
+#' @seealso \code{epiR::epi.2by2}, \code{ratesci::scoreci}, \code{classInt::classIntervals}
+#'
+#' @references
+#' World Health Organization. Handbook on health inequality monitoring with a special focus on low- and middle-income countries. 2013.
+#' Available from: https://www.who.int/publications/i/item/9789241548632
+#'
+#' @author
+#' Adrián Vázquez-Mejía, MD MSc(c) (\email{apvasquez.md@gmail.com})
+#' \cr Independent Consultant
+#'
+#' Oscar J. Mújica, MD MPH (\email{mujicaos@paho.org})
+#' \cr Pan American Health Organization (PAHO), Washington D.C.
+#'
+#' Antonio Sanhueza, PhD (\email{sanhueza@paho.org})
+#' \cr Pan American Health Organization (PAHO), Washington D.C.
+#'
+#' @export
+
+rg <- function(health_indicator_type = NULL,
+               health_indicator = NULL,
+               population_weights = NULL,
+               health_numerator = NULL,
+               health_denominator = NULL,
+               equity_stratifier = NULL,
+               higher_ineq_is_favorable = NULL,
+               rate_scaling_factor = NULL,
+               grouping_method = NULL,
+               n_groups = NULL,
+               manual_breaks = NULL,
+               conf_level = NULL,
+               language_interpretation = NULL) {
+
+  # ────────────────────────────────────────────────
+  # Required packages and function conflict handling
+  # ────────────────────────────────────────────────
+  suppressMessages({
+    library(dplyr)
+    library(tibble)
+    library(epiR)
+    library(classInt)     # for stratifier grouping methods (e.g., quantiles, Jenks)
+    library(conflicted)   # for explicit function conflict resolution
+    library(PropCIs)      # for score-based confidence intervals (proportions)
+    library(fmsb)         # for computing confidence intervals for rate differences
+    library(rio)          # for importing/exporting datasets
+  })
+
+  suppressMessages(conflicted::conflict_prefer("filter",    "dplyr", quiet = TRUE))
+  suppressMessages(conflicted::conflict_prefer("select",    "dplyr", quiet = TRUE))
+  suppressMessages(conflicted::conflict_prefer("mutate",    "dplyr", quiet = TRUE))
+  suppressMessages(conflicted::conflict_prefer("rename",    "dplyr", quiet = TRUE))
+  suppressMessages(conflicted::conflict_prefer("summarise", "dplyr", quiet = TRUE))
+  suppressMessages(conflicted::conflict_prefer("arrange",   "dplyr", quiet = TRUE))
+  suppressMessages(conflicted::conflict_prefer("group_by",  "dplyr", quiet = TRUE))
+  suppressMessages(conflicted::conflict_prefer("ungroup",   "dplyr", quiet = TRUE))
+  suppressMessages(conflicted::conflict_prefer("slice",     "dplyr", quiet = TRUE))
+  suppressMessages(conflicted::conflict_prefer("pull",      "dplyr", quiet = TRUE))
+
+  # Set reproducible seed for stochastic methods (e.g., k-means)
+  set.seed(123)
+
+  # ───────────────────────────────────────────────
+  # Argument validation (input consistency checks)
+  # ───────────────────────────────────────────────
+
+  # Check health_indicator_type
+  if (is.null(health_indicator_type) || !(health_indicator_type %in% c("proportion", "rate"))) {
+    stop("`health_indicator_type` is required and must be either 'proportion' or 'rate'.")
+  }
+
+  # Check presence health_indicator & (health_numerator | health_denominator)
+  if (is.null(health_indicator) && (is.null(health_numerator) || is.null(health_denominator))) {
+    stop("You must provide either `health_indicator`, or both `health_numerator` and `health_denominator`.")
+  }
+
+  # Check presence health_numerator & health_denominator
+  use_num_den <- !is.null(health_numerator) && !is.null(health_denominator)
+
+  # If not using numerator/denominator, check population weights
+  if (!use_num_den) {
+
+    if (!is.null(health_numerator)) {
+      warning(
+        "`health_numerator` was provided without `health_denominator` and will be ignored."
+      )
+      health_numerator <- NULL
+    }
+
+    if (!is.null(health_denominator)) {
+      warning(
+        "`health_denominator` was provided without `health_numerator` and will be ignored."
+      )
+      health_denominator <- NULL
+    }
+
+    # Check health_indicator
+    if (is.null(health_indicator)) stop("Missing `health_indicator`. Provide it when raw numerator/denominator are not available.")
+    if (!is.numeric(health_indicator)) stop("`health_indicator` must be numeric.")
+    if (any(is.na(health_indicator))) stop("Missing values detected in `health_indicator`.")
+    if (health_indicator_type == "proportion") {
+      if (any(health_indicator < 0 | health_indicator > 1, na.rm = TRUE)) {
+        stop("`health_indicator` values must be between 0 and 1 for type 'proportion'.")
+      }
+    } else if (health_indicator_type == "rate") {
+      if (is.null(rate_scaling_factor)) {
+        stop("For rates, a numeric `rate_scaling_factor` > 0 (e.g., 1000 or 100000) must be specified.")
+      }
+      if (any(health_indicator < 0, na.rm = TRUE)) {
+        stop("`health_indicator` values must be ≥ 0 for type 'rate'.")
+      }
+    }
+
+    # Check population_weights
+    if (is.null(population_weights)) {
+      stop("`population_weights` must be provided when `health_numerator` and `health_denominator` are not.")
+    }
+    if (!is.numeric(population_weights)) stop("`population_weights` must be numeric.")
+    if (any(population_weights <= 0, na.rm = TRUE)) stop("`population_weights` must be strictly greater than 0.")
+    if (any(is.na(population_weights))) stop("Missing values detected in `population_weights`.")
+
+    # Check length of inputs (health_indicator, population_weights and equity_stratifier)
+    if (length(population_weights) != length(health_indicator)) {
+      stop("`population_weights` must have the same length as `health_indicator`.")
+    }
+    if (length(population_weights) != length(equity_stratifier)) {
+      stop("`population_weights` must have the same length as `equity_stratifier`.")
+    }
+  }
+
+  # If using numerator/denominator, validate ratios and scaling
+  if (use_num_den) {
+
+    # Check health_numerator
+    if (!is.null(health_numerator)) {
+      if (!is.numeric(health_numerator)) {
+        stop("`health_numerator` must be numeric.")
+      }
+      if (any(health_numerator < 0, na.rm = TRUE)) {
+        stop("`health_numerator` cannot contain negative values. All values must be ≥ 0.")
+      }
+      if (any(health_numerator %% 1 != 0, na.rm = TRUE)) {
+        warning("`health_numerator` contains non-integer values. These will be rounded to the nearest whole number.")
+        health_numerator <- round(health_numerator)
+      }
+    }
+
+    # Check health_denominator
+    if (!is.null(health_denominator)) {
+      if (!is.numeric(health_denominator)) {
+        stop("`health_denominator` must be numeric.")
+      }
+      if (any(health_denominator <= 0, na.rm = TRUE)) {
+        stop("`health_denominator` must contain values > 0 only.")
+      }
+      if (any(health_denominator %% 1 != 0, na.rm = TRUE)) {
+        warning("`health_denominator` contains non-integer values. These will be rounded to the nearest whole number.")
+        health_denominator <- round(health_denominator)
+      }
+    }
+
+    #Check health indicator calculated from numerator/denominator
+    if (health_indicator_type == "proportion") {
+      ratio_calc <- health_numerator / health_denominator
+      if (any(ratio_calc < 0 | ratio_calc > 1, na.rm = TRUE)) {
+        stop("Health indicator calculated from numerator/denominator fall outside the range [0,1]. Check inputs.")
+      }
+    }
+    if (health_indicator_type == "rate") {
+      ratio_calc <- health_numerator / health_denominator * rate_scaling_factor
+      if (any(ratio_calc < 0, na.rm = TRUE)) {
+        stop("Health indicator values calculated from numerator/denominator fall outside the range [0, Inf]. Check inputs.")
+      }
+    }
+    if (!is.null(health_indicator)) {
+      warning("`health_numerator` and `health_denominator` detected. health_indicator will be ignored because health_numerator and health_denominator were provided. The indicator will be derived from those inputs instead.")
+    }
+
+    #Check length of inputs (health_numerator, health_denominator and equity_stratifier)
+    if (length(health_numerator) != length(health_denominator)) {
+      stop("`health_numerator` must have the same length as `health_denominator`.")
+    }
+
+    if (length(health_numerator) != length(equity_stratifier)) {
+      stop("`health_numerator` must have the same length as `equity_stratifier`.")
+    }
+  }
+
+  # Check equity_stratifier
+  if (is.null(equity_stratifier)) {
+    stop("You must provide `equity_stratifier`.")
+  }
+  if (!is.numeric(equity_stratifier)) stop("`equity_stratifier` must be numeric.")
+  if (any(is.na(equity_stratifier))) stop("Missing values detected in `equity_stratifier`.")
+
+  # Check higher_ineq_is_favorable
+  if (is.null(higher_ineq_is_favorable)) {
+    stop("Please specify `higher_ineq_is_favorable` (TRUE if higher values = more favorable).")
+  }
+  if (!is.logical(higher_ineq_is_favorable)) {
+    stop("`higher_ineq_is_favorable` must be logical (TRUE/FALSE).")
+  }
+
+  # Check health_indicator_type
+  if (health_indicator_type == "rate") {
+    if (is.null(rate_scaling_factor) || !is.numeric(rate_scaling_factor) ||
+        length(rate_scaling_factor) != 1 || rate_scaling_factor <= 0) {
+      stop("For `health_indicator_type = 'rate'`, you must provide a numeric `rate_scaling_factor` > 0 (e.g., 1000 or 100000).")
+    }
+  }
+
+  # Warn if scaling factor is ignored for proportions
+  if (health_indicator_type == "proportion") {
+    if (!is.null(rate_scaling_factor)) {
+      warning("`rate_scaling_factor` is ignored because `health_indicator_type` is set to `proportion`. It only applies to rates.")
+    }
+    rate_scaling_factor <- 1
+  }
+
+  # Check grouping method
+  if (is.null(grouping_method)) {
+    message("No `grouping_method` specified. Defaulting to 'quantiles'.")
+    grouping_method <- "quantiles"
+  }
+
+  allowed_methods <- c(
+    "manual intervals", "equal intervals", "quantiles", "k-means",
+    "hierarchical clustering", "bagging clustering", "fisher-jenks", "jenks",
+    "maximum differences"
+  )
+
+  if (!(tolower(grouping_method) %in% tolower(allowed_methods))) {
+    stop("Unrecognized `grouping_method`. Allowed values are: ",
+         paste(allowed_methods, collapse = ", "), ".")
+  }
+
+  if (tolower(grouping_method) == "manual intervals" && is.null(manual_breaks)) {
+    stop("When using 'manual intervals', you must provide `manual_breaks`.")
+  }
+
+  # Check number of groups
+  if (is.null(n_groups)) {
+    message("No `n_groups` specified. Defaulting to 4.")
+    n_groups <- 4L
+  } else {
+    if (!is.numeric(n_groups) || length(n_groups) != 1) {
+      stop("`n_groups` must be a single numeric integer greater than or equal to 2.")
+    }
+    if (n_groups < 2 || n_groups != as.integer(n_groups)) {
+      stop("`n_groups` must be an integer greater than or equal to 2.")
+    }
+    n_groups <- as.integer(n_groups)
+  }
+
+  # Check manual breakpoints
+  if (!is.null(manual_breaks)) {
+    if (is.character(manual_breaks) && length(manual_breaks) == 1) {
+      manual_breaks <- as.numeric(unlist(strsplit(gsub("\\s+", " ", manual_breaks), "[, ]+")))
+    } else {
+      manual_breaks <- as.numeric(manual_breaks)
+    }
+
+    if (any(is.na(manual_breaks))) stop("`manual_breaks` contains non-numeric values.")
+    if (length(manual_breaks) == 0) stop("`manual_breaks` cannot be empty.")
+    if (any(duplicated(manual_breaks))) stop("`manual_breaks` must not contain duplicate values.")
+
+    if (!is.null(equity_stratifier)) {
+      if (any(manual_breaks <= min(equity_stratifier, na.rm = TRUE) |
+              manual_breaks >= max(equity_stratifier, na.rm = TRUE))) {
+        stop("Some `manual_breaks` are outside the range of `equity_stratifier`. Check your breakpoints.")
+      }
+    }
+  }
+
+  # Check confidence level
+  if (is.null(conf_level)) {
+    message("No `conf_level` specified. Defaulting to 0.95.")
+    conf_level <- 0.95
+  } else {
+    conf_level <- as.numeric(conf_level)
+    if (is.na(conf_level) || length(conf_level) != 1 || !(conf_level > 0 && conf_level < 1)) {
+      stop("`conf_level` must be a numeric value between 0 and 1 (e.g., 0.95).")
+    }
+  }
+
+  # Check language interpretation
+  alias_map <- c(en = "english", es = "spanish", pt = "portuguese", fr = "french")
+  full_to_alias <- setNames(names(alias_map), alias_map)  # "english" -> "en", etc.
+
+  if (missing(language_interpretation) || is.null(language_interpretation) ||
+      !nzchar(trimws(as.character(language_interpretation)))) {
+    message("No `language_interpretation` specified. Defaulting to 'en'.")
+    language_interpretation <- "en"
+  } else {
+    language_interpretation <- tolower(trimws(as.character(language_interpretation)))
+  }
+
+  if (language_interpretation %in% names(full_to_alias)) {
+    language_interpretation <- unname(full_to_alias[language_interpretation])
+  } else if (language_interpretation %in% names(alias_map)) {
+  } else {
+    stop("Unrecognized `language_interpretation`. Allowed aliases: ",
+         paste(names(alias_map), collapse = ", "),
+         ". Allowed full names: ",
+         paste(unname(alias_map), collapse = ", "), ".")
+  }
+
+  # ────────────────────────────────
+  # Base data frame preparation
+  # ────────────────────────────────
+  # If both numerator and denominator are provided, construct health_indicator from them;
+  # otherwise, use the health_indicator provided directly.
+  health_indicator_final <- if (!is.null(health_numerator) && !is.null(health_denominator)) {
+    if (health_indicator_type == "proportion") {
+      as.numeric(health_numerator / health_denominator)
+    } else { # "rate"
+      as.numeric((health_numerator / health_denominator) * rate_scaling_factor)
+    }
+  } else {
+    as.numeric(health_indicator)
+  }
+
+  if (!use_num_den) {
+    df <- tibble::tibble(
+      health_indicator = health_indicator_final,
+      equity_stratifier = as.numeric(equity_stratifier),
+      population_weights = as.numeric(population_weights)
+    )
+  } else {
+    df <- tibble::tibble(
+      health_indicator   = health_indicator_final,
+      health_numerator   = health_numerator,
+      health_denominator = health_denominator,
+      equity_stratifier  = as.numeric(equity_stratifier)
+    )
+  }
+
+  # Create social position variable for ranking and grouping purposes.
+  # equity_stratifier_order is used to rank and group units. If higher values of the stratifier
+  # are considered more favorable (higher_ineq_is_favorable = TRUE), the order is preserved.
+  # Otherwise, the scale is reversed to ensure that group 1 always corresponds to the most disadvantaged.
+  df <- df %>%
+    mutate(equity_stratifier_order = if (isTRUE(higher_ineq_is_favorable)) equity_stratifier else -equity_stratifier) %>%
+    arrange(equity_stratifier_order)
+
+  # ──────────────────────────────────────────
+  # Safe creation of breaks for grouping
+  # ──────────────────────────────────────────
+  safe_class_intervals <- function(x, n, style, fixedBreaks = NULL) {
+    tryCatch({
+      if (!is.null(fixedBreaks)) {
+        ci <- classInt::classIntervals(x, n = n, style = style, fixedBreaks = fixedBreaks)
+      } else {
+        ci <- classInt::classIntervals(x, n = n, style = style)
+      }
+      ci$brks
+    }, error = function(e) {
+      stop(sprintf("Unable to create breaks using style = '%s'. Check the method or the data. Original error: %s", style, e$message))
+    })
+  }
+
+  # Map human-readable method names to classInt styles (if needed)
+  style <- switch(tolower(grouping_method),
+                  "manual intervals"     = "fixed",
+                  "equal intervals"      = "equal",
+                  "quantiles"            = "quantile",
+                  "k-means"              = "kmeans",
+                  "hierarchical cluster" = "hclust",
+                  "bagged clustering"    = "bclust",
+                  "fisher-jenks"         = "fisher",
+                  "jenks"                = "jenks",
+                  "maximum breaks"       = "maximum",
+                  stop("Unrecognized grouping_method.")
+  )
+
+  # Compute breaks for social stratification
+  if (style == "fixed") {
+    fixedBreaks <- c(-Inf, sort(manual_breaks), Inf)
+    breaks_vec <- safe_class_intervals(df$equity_stratifier_order, n = length(fixedBreaks) - 1, style = "fixed", fixedBreaks = fixedBreaks)
+  } else {
+    breaks_vec <- safe_class_intervals(df$equity_stratifier_order, n = n_groups, style = style)
+  }
+
+  # Assign social groups based on equity_stratifier_order and computed breaks
+  df <- df %>%
+    mutate(group = cut(equity_stratifier_order, breaks = breaks_vec, include.lowest = TRUE)) %>%
+    mutate(group = as.integer(group))
+
+  # Check that grouping resulted in at least two non-empty groups
+  if (n_distinct(df$group) < 2) stop("Grouping resulted in fewer than two valid groups. Consider changing `grouping_method` or `n_groups`.")
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Global weighted means for the health indicator and the equity stratifier
+  # ──────────────────────────────────────────────────────────────────────────────
+  if (!use_num_den) {
+    global_health_mean <- weighted.mean(df$health_indicator, w = df$population_weights, na.rm = TRUE)
+    global_equity_stratifier_mean <- weighted.mean(df$equity_stratifier, w = df$population_weights, na.rm = TRUE)
+  } else {
+    total_num <- sum(df$health_numerator, na.rm = TRUE)
+    total_den <- sum(df$health_denominator, na.rm = TRUE)
+
+    global_health_mean <- if (health_indicator_type == "proportion") {
+      total_num / total_den
+    } else if (health_indicator_type == "rate") {
+      (total_num / total_den) * rate_scaling_factor
+    }
+  }
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Group-level summary
+  # - pop_group: total population within each group
+  # - health_indicator_group: weighted intra-group mean of the health indicator
+  # ──────────────────────────────────────────────────────────────────────────────
+
+  if (!use_num_den) {
+    group_summary <- df %>%
+      group_by(group) %>%
+      summarise(
+        health_indicator_group = weighted.mean(health_indicator, w = population_weights, na.rm = TRUE),
+        pop_group              = sum(population_weights, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      rename(
+        population_weights = pop_group,
+        health_indicator   = health_indicator_group
+      ) %>%
+      arrange(group)
+  } else {
+    group_summary <- df %>%
+      group_by(group) %>%
+      summarise(
+        health_numerator   = sum(health_numerator, na.rm = TRUE),   # total numerator in group
+        health_denominator = sum(health_denominator, na.rm = TRUE), # total denominator in group
+        .groups = "drop"
+      ) %>%
+      mutate(
+        health_indicator = (health_numerator / health_denominator) * rate_scaling_factor
+      ) %>%
+      arrange(group)
+  }
+
+  # ──────────────────────────────
+  # Relative Gap Calculation
+  # ──────────────────────────────
+
+  min_g <- min(group_summary$group)
+  max_g <- max(group_summary$group)
+
+  if (!use_num_den) {
+    z <- qnorm(1 - (1 - conf_level) / 2)
+
+    if (health_indicator_type == "proportion") {
+      # Approximation for independent proportions
+      p1 <- group_summary$health_indicator[group_summary$group == min_g]
+      n1 <- group_summary$population_weights[group_summary$group == min_g]
+      p2 <- group_summary$health_indicator[group_summary$group == max_g]
+      n2 <- group_summary$population_weights[group_summary$group == max_g]
+
+      # Standard error of the difference between two independent proportions
+      se_log <- sqrt((1 - p1) / (n1 * p1) + (1 - p2) / (n2 * p2))
+      # Confidence interval for the relative gap
+      value   <- p1 / p2
+      ci_low  <- exp(log(value) - z * se_log)
+      ci_high <- exp(log(value) + z * se_log)
+
+    } else if (health_indicator_type == "rate") {
+      # Approximation for rates
+      x1 <- group_summary$health_indicator[group_summary$group == min_g] *
+        group_summary$population_weights[group_summary$group == min_g] / rate_scaling_factor
+      n1 <- group_summary$population_weights[group_summary$group == min_g]
+      x2 <- group_summary$health_indicator[group_summary$group == max_g] *
+        group_summary$population_weights[group_summary$group == max_g] / rate_scaling_factor
+      n2 <- group_summary$population_weights[group_summary$group == max_g]
+
+      # Standard error of the scaled rate ratio (Wald method)
+      se_log <- sqrt((1 / x1) + (1 / x2))
+      value   <- (x1 / n1) / (x2 / n2)
+      ci_low  <- exp(log(value) - z * se_log)
+      ci_high <- exp(log(value) + z * se_log)
+    }
+
+  } else {
+    if (health_indicator_type == "proportion") {
+      x1 <- sum(df$health_numerator[df$group == min_g], na.rm = TRUE)
+      n1 <- sum(df$health_denominator[df$group == min_g], na.rm = TRUE)
+      x2 <- sum(df$health_numerator[df$group == max_g], na.rm = TRUE)
+      n2 <- sum(df$health_denominator[df$group == max_g], na.rm = TRUE)
+
+      tab <- matrix(c(x1, n1 - x1, x2, n2 - x2), nrow = 2, byrow = TRUE)
+      res_epi <- epi.2by2(dat = tab, method = "cohort.count", conf.level = 0.95)
+      value  <- as.numeric(res_epi$massoc.summary$est[1])
+      ci_low <- as.numeric(res_epi$massoc.summary$lower[1])
+      ci_high <- as.numeric(res_epi$massoc.summary$upper[1])
+
+    } else if (health_indicator_type == "rate") {
+      x1 <- sum(df$health_numerator[df$group == min_g], na.rm = TRUE)
+      n1 <- sum(df$health_denominator[df$group == min_g], na.rm = TRUE)
+      x2 <- sum(df$health_numerator[df$group == max_g], na.rm = TRUE)
+      n2 <- sum(df$health_denominator[df$group == max_g], na.rm = TRUE)
+
+      res <- ratesci::scoreci(
+        x1 = as.numeric(x1),
+        n1 = as.numeric(n1),
+        x2 = as.numeric(x2),
+        n2 = as.numeric(n2),
+        distrib = "poi",
+        contrast = "RR",
+        level = conf_level,
+        skew = TRUE
+      )
+
+      value   <- as.numeric(res$estimates[1, "est"])
+      ci_low  <- as.numeric(res$estimates[1, "lower"])
+      ci_high <- as.numeric(res$estimates[1, "upper"])
+    }
+  }
+
+  # Confidence interval check
+  if (!is.finite(ci_low) ||
+      !is.finite(ci_high))
+    stop("Invalid confidence intervals (NA/Inf).")
+
+  summary_table <- tibble::tibble(
+    inequality_metric = "Relative gap",
+    value   = value,
+    ci_low  = ci_low,
+    ci_high = ci_high
+  )
+
+  # ──────────────────────────────
+  # Automatic interpretation
+  # ──────────────────────────────
+  factor_legible <- format(rate_scaling_factor, scientific = FALSE, big.mark = ",")
+
+  # Interpretation in Spanish
+  interpretation_spanish <- if (health_indicator_type == "rate") {
+    if (value > 1) {
+      paste0(
+        "La brecha relativa es ", round(value, 2), ", ", conf_level*100 , "%IC [", round(ci_low, 2), "; ", round(ci_high, 2), "]. ",
+        "Esto indica que el indicador de salud en el grupo más desfavorecido es ", round(summary_table$value, 2),
+        " veces el número de eventos por cada ", factor_legible, " individuos de la población base en comparación con el grupo más favorecido."
+      )
+    } else if (value < 1) {
+      paste0(
+        "La brecha relativa es de ", round(summary_table$value*100, 2),
+        "%, ", conf_level*100 ,"%IC [", round(summary_table$ci_low*100, 2), "%; ",
+        round(summary_table$ci_high*100, 2), "%]. ",
+        "Esto indica que el indicador de salud en el grupo más desfavorecido es ",
+        round(summary_table$value*100, 2), "% del número de eventos por cada ", factor_legible,
+        " individuos de la población base en comparación con el grupo más favorecido. ",
+        "Esto es equivalente a que el grupo más favorecido tiene ", round(1/summary_table$value, 2),
+        " veces el número de eventos por cada ", factor_legible,
+        " individuos de la población base en comparación con el grupo más desfavorecido."
+      )
+    } else if (value == 1) {
+      paste0("La brecha relativa es de 0. No hay diferencias relativas por cada ", factor_legible, " individuos de la población entre los grupos sociales extremos.")
+    }
+  } else if (health_indicator_type == "proportion") {
+    if (value > 1) {
+      paste0(
+        "La brecha relativa es de ", round(summary_table$value, 2),
+        ", ", conf_level*100 , "%IC [", round(summary_table$ci_low, 2), "; ", round(summary_table$ci_high, 2), "]. ",
+        "Esto indica que el indicador de salud en el grupo más desfavorecido es ", round(summary_table$value, 2),
+        " veces el del grupo más favorecido."
+      )
+    } else if (value < 1) {
+      paste0(
+        "La brecha relativa es de ", round(summary_table$value*100, 2),
+        "%, ", conf_level*100 ,"%IC [", round(summary_table$ci_low*100, 2), "%; ",
+        round(summary_table$ci_high*100, 2), "%]. ",
+        "Esto indica que el indicador de salud en el grupo más desfavorecido es ",
+        round(summary_table$value*100, 2), "% del grupo más favorecido. ",
+        "Esto es equivalente a que el grupo más favorecido tiene ", round(1/summary_table$value, 2),
+        " veces el indicador de salud del grupo más desfavorecido."
+      )
+    } else if (value == 1) {
+      paste0("La brecha relativa es de 0. No hay diferencias relativas entre los grupos extremos.")
+    }
+  }
+  interpretation_spanish <- paste0(
+    interpretation_spanish,
+    if (ci_low <= 1 && ci_high >= 1) {
+      " Sin embargo, esta razón no es estadísticamente significativa."
+    } else {
+      " Esta razón es estadísticamente significativa."
+    }
+  )
+
+  # Interpretation in English
+  interpretation_english <- if (health_indicator_type == "rate") {
+    if (value > 1) {
+      paste0(
+        "The relative gap is ", round(value, 2), ", ", conf_level*100 , "%CI [", round(ci_low, 2), "; ", round(ci_high, 2), "]. ",
+        "This indicates that the health indicator in the most disadvantaged group is ", round(summary_table$value, 2),
+        " times the number of events per ", factor_legible, " individuals of the base population compared to the most advantaged group."
+      )
+    } else if (value < 1) {
+      paste0(
+        "The relative gap is ", round(summary_table$value*100, 2),
+        "%, ", conf_level*100 ,"%CI [", round(summary_table$ci_low*100, 2), "%; ",
+        round(summary_table$ci_high*100, 2), "%]. ",
+        "This indicates that the health indicator in the most disadvantaged group is ",
+        round(summary_table$value*100, 2), "% of the number of events per ", factor_legible,
+        " individuals of the base population compared to the most advantaged group. ",
+        "This is equivalent to the most advantaged group having ", round(1/summary_table$value, 2),
+        " times the number of events per ", factor_legible,
+        " individuals of the base population compared to the most disadvantaged group."
+      )
+    } else if (value == 1) {
+      paste0("The relative gap is 0. There are no relative differences per ", factor_legible, " individuals of the population between the extreme social groups.")
+    }
+  } else if (health_indicator_type == "proportion") {
+    if (value > 1) {
+      paste0(
+        "The relative gap is ", round(summary_table$value, 2),
+        ", ", conf_level*100 , "%CI [", round(summary_table$ci_low, 2), "; ", round(summary_table$ci_high, 2), "]. ",
+        "This indicates that the health indicator in the most disadvantaged group is ", round(summary_table$value, 2),
+        " times that of the most advantaged group."
+      )
+    } else if (value < 1) {
+      paste0(
+        "The relative gap is ", round(summary_table$value*100, 2),
+        "%, ", conf_level*100 ,"%CI [", round(summary_table$ci_low*100, 2), "%; ",
+        round(summary_table$ci_high*100, 2), "%]. ",
+        "This indicates that the health indicator in the most disadvantaged group is ",
+        round(summary_table$value*100, 2), "% of the most advantaged group. ",
+        "This is equivalent to the most advantaged group having ", round(1/summary_table$value, 2),
+        " times the health indicator of the most disadvantaged group."
+      )
+    } else if (value == 1) {
+      paste0("The relative gap is 0. There are no relative differences between the extreme groups.")
+    }
+  }
+  interpretation_english <- paste0(
+    interpretation_english,
+    if (ci_low <= 1 && ci_high >= 1) {
+      " However, this ratio is not statistically significant."
+    } else {
+      " This ratio is statistically significant."
+    }
+  )
+
+  # Note based on indicator type
+  note_spanish <- if (health_indicator_type == "rate") {
+    "Nota: Los eventos corresponden al numerador y la población base al denominador del indicador de salud. Ejemplo: RMM."
+  } else if (health_indicator_type == "proportion") {
+    "Nota: El valor representa una proporción (por ejemplo, partos atendidos por personal calificado)."
+  }
+
+  note_english <- if (health_indicator_type == "rate") {
+    "Note: Events correspond to the numerator and the base population to the denominator of the health indicator. Example: RMM."
+  } else if (health_indicator_type == "proportion") {
+    "Note: The value represents a proportion (for example, births attended by qualified personnel)."
+  }
+
+
+  if (language_interpretation == "en") {
+    interpretation <- interpretation_english
+    note <- note_english
+  } else if  (language_interpretation == "es") {
+    interpretation <- interpretation_spanish
+    note <- note_spanish
+  } else if  (language_interpretation == "pt") {
+    interpretation <- interpretation_portuguese
+    note <- note_portuguese
+  } else if  (language_interpretation == "fr") {
+    interpretation <- interpretation_french
+    note <- note_french
+  }
+
+  # ────────────
+  # Final output
+  # ────────────
+  return(list(
+    summary_table = summary_table,
+    relative_gap = as.vector(value),
+    ci_lower = as.vector(ci_low),
+    ci_upper = as.vector(ci_high),
+    interpretation = interpretation,
+    note = note,
+    group_summary = group_summary,
+    global_health_mean = global_health_mean,
+    data = df
+  ))
+}
+
+

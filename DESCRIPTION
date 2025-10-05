@@ -1,0 +1,46 @@
+Package: lunaineq
+Title: Tools for Analyzing Health Inequality Metrics
+Version: 0.1.0
+Authors@R: c(person("Adrián", "Vázquez-Mejía", email = "apvasquez.md@gmail.com", role = c("aut", "cre"), comment = c(ORCID = "0009-0005-7343-3389")), person("Oscar J.", "Mújica", email = "mujicaos@paho.org", role = "aut", comment = c(ORCID = "0000-0002-2893-4206")), person("Antonio", "Sanhueza", email = "sanhueza@paho.org", role = "aut", comment = c(ORCID = "0000-0002-1857-3662")))
+Description: Tools for computing and interpreting health inequality metrics,
+    including absolute and relative gaps, regression-based measures and
+    disproportionality-based indices. Supports both disaggregated data
+    (numerator/denominator) and aggregated indicators with population
+    weights. Provides automatic interpretations in Spanish, English, French
+    and Portuguese, and is designed for epidemiological and public-health
+    monitoring applications.
+License: AGPL (>= 3)
+URL: https://github.com/adrian/lunaineq
+BugReports: https://github.com/adrian/lunaineq/issues
+Depends: R (>= 4.2.0)
+Imports:
+    dplyr,
+    tibble,
+    tidyr,
+    purrr,
+    rlang,
+    classInt,
+    PropCIs,
+    ratesci,
+    epiR,
+    Metrics,
+    MASS,
+    sandwich,
+    emmeans,
+    car,
+    optimx,
+    conflicted,
+    magrittr
+Suggests:
+    knitr,
+    rmarkdown,
+    bookdown,
+    spelling,
+    testthat (>= 3.0.0)
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+Encoding: UTF-8
+Language: en-US
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
