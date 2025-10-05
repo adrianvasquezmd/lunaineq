@@ -1,0 +1,36 @@
+# Sitio web para el paquete lunaineq
+
+package: lunaineq
+title: "lunaineq: Tools for Analyzing Health Inequality Metrics"
+url: https://adrianvas1995.github.io/lunaineq/
+
+template:
+  bootstrap: 5
+  bootswatch: flatly
+
+navbar:
+  structure:
+    left:
+      - home
+      - reference
+      - articles
+    right:
+      - github
+
+reference:
+  - title: "Main functions"
+    contents:
+      - ag_luna
+      - rg_luna
+      - sii_luna
+      - rii_luna
+      - aci_luna
+      - rci_luna
+
+articles:
+  - title: "Getting Started"
+    contents:
+      - introduction
+
+development:
+  mode: release
