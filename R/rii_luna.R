@@ -904,7 +904,7 @@ rii_luna <- function(health_indicator_type = NULL,
   summary_table <- data.frame(
     inequality_metric = "Relative index of inequality (RII)",
     selected_model = if (exists("best_model")) best_model else NA_character_,
-    estimate = rii_est,
+    value = rii_est,
     ci_lower = rii_lwr,
     ci_upper = rii_upr,
     stringsAsFactors = FALSE
@@ -1269,6 +1269,7 @@ rii_luna <- function(health_indicator_type = NULL,
     interpretation = interpretation,
     note = note,
     global_health_mean = global_health_mean,
+    dx_models_regression = fit_metrics2,
     data = df,
     data_with_extremes = data_with_extremes
   ))
