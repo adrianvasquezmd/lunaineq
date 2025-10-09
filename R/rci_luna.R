@@ -73,6 +73,7 @@
 #' data(data1)
 #' rci_luna(
 #'   health_indicator_type    = "rate",
+#'   unit_analysis            = data1$zone,
 #'   health_numerator         = data1$maternal_deaths,
 #'   health_denominator       = data1$live_births,
 #'   equity_stratifier        = data1$ubn_percent,
@@ -91,6 +92,7 @@
 #' data(data2)
 #' rci_luna(
 #'   health_indicator_type    = "proportion",
+#'   unit_analysis            = data2$zone,
 #'   health_numerator         = data2$skilled_births,
 #'   health_denominator       = data2$total_births,
 #'   equity_stratifier        = data2$ubn_percent,
@@ -110,6 +112,7 @@
 #' data(data1)
 #' rci_luna(
 #'   health_indicator_type    = "rate",
+#'   unit_analysis            = data1$zone,
 #'   health_indicator         = data1$mmr,
 #'   equity_stratifier        = data1$ubn_percent,
 #'   population_weights       = data1$population_zone,
@@ -128,6 +131,7 @@
 #' data(data2)
 #' rci_luna(
 #'   health_indicator_type    = "proportion",
+#'   unit_analysis            = data2$zone,
 #'   health_indicator         = data2$skilled_births_prop,
 #'   equity_stratifier        = data2$ubn_percent,
 #'   population_weights       = data2$population,
@@ -158,6 +162,7 @@
 
 rci_luna <- function(
     health_indicator_type = NULL,
+    unit_analysis = NULL,
     health_indicator = NULL,
     population_weights = NULL,
     health_numerator = NULL,
@@ -180,6 +185,12 @@ rci_luna <- function(
   if (is.null(health_indicator_type) || !(health_indicator_type %in% c("proportion", "rate"))) {
     stop("`health_indicator_type` is required and must be either 'proportion' or 'rate'.")
   }
+
+  # Check Unit analysis
+  if (is.null(unit_analysis)) {
+    stop("You must provide `unit_analysis`.")
+  }
+  if (any(is.na(unit_analysis))) stop("Missing values detected in `unit_analysis`.")
 
   if (is.null(conf_level)) {
     warning("`conf_level` not provided: defaulting to 0.95.")
@@ -328,6 +339,7 @@ rci_luna <- function(
       indicator_vec <- (health_numerator / health_denominator) * rate_scaling_factor
     }
     df_master <- tibble::tibble(
+      unit_analysis = as.character(unit_analysis),
       indicator    = as.numeric(indicator_vec),
       equity       = as.numeric(equity_stratifier),
       numerator    = as.numeric(round(health_numerator)),
@@ -336,6 +348,7 @@ rci_luna <- function(
     )
   } else {
     df_master <- tibble::tibble(
+      unit_analysis = as.character(unit_analysis),
       indicator = as.numeric(health_indicator),
       equity    = as.numeric(equity_stratifier),
       pop_use   = as.numeric(population_weights)
@@ -554,7 +567,8 @@ rci_luna <- function(
   }
 
   df <- df %>%
-    select(health_indicator = indicator,
+    select(unit_analysis = unit_analysis,
+           health_indicator = indicator,
            equity_stratifier = equity,
            cumulative_population = cwpop,
            social_position,

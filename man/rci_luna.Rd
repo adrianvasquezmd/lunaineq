@@ -6,6 +6,7 @@
 \usage{
 rci_luna(
   health_indicator_type = NULL,
+  unit_analysis = NULL,
   health_indicator = NULL,
   population_weights = NULL,
   health_numerator = NULL,
@@ -110,6 +111,7 @@ Mode B is an approximation used when only aggregated indicators and population w
 data(data1)
 rci_luna(
   health_indicator_type    = "rate",
+  unit_analysis            = data1$zone,
   health_numerator         = data1$maternal_deaths,
   health_denominator       = data1$live_births,
   equity_stratifier        = data1$ubn_percent,
@@ -128,6 +130,7 @@ rci_luna(
 data(data2)
 rci_luna(
   health_indicator_type    = "proportion",
+  unit_analysis            = data2$zone,
   health_numerator         = data2$skilled_births,
   health_denominator       = data2$total_births,
   equity_stratifier        = data2$ubn_percent,
@@ -147,6 +150,7 @@ rci_luna(
 data(data1)
 rci_luna(
   health_indicator_type    = "rate",
+  unit_analysis            = data1$zone,
   health_indicator         = data1$mmr,
   equity_stratifier        = data1$ubn_percent,
   population_weights       = data1$population_zone,
@@ -165,6 +169,7 @@ rci_luna(
 data(data2)
 rci_luna(
   health_indicator_type    = "proportion",
+  unit_analysis            = data2$zone,
   health_indicator         = data2$skilled_births_prop,
   equity_stratifier        = data2$ubn_percent,
   population_weights       = data2$population,
