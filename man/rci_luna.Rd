@@ -53,7 +53,7 @@ rci_luna(
 }
 \value{
 A \code{list} with the following components:
-\item{summary}{A \code{tibble} with one or more rows containing: the RCI estimate(s) (\code{estimate}), the confidence interval bounds (\code{ci_lower}, \code{ci_upper}), a short \code{metric} label and the \code{method} used. When \code{apply_corrections = TRUE} additional rows for the Wagstaff and Erreygers adjustments are included.}
+\item{summary_table}{A \code{tibble} with one or more rows containing: the RCI estimate(s) (\code{estimate}), the confidence interval bounds (\code{ci_lower}, \code{ci_upper}), a short \code{metric} label and the \code{method} used. When \code{apply_corrections = TRUE} additional rows for the Wagstaff and Erreygers adjustments are included.}
 \item{interpretation}{Character string (or character vector when corrections are applied) with the automatic interpretation of the result(s) in the selected language.}
 \item{note}{Character string with the explanatory note in the selected language, based on the type of health indicator.}
 \item{global_health_mean}{Overall mean of the health indicator: weighted average (Mode B) or global rate (Mode A).}
