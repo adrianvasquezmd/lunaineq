@@ -66,6 +66,7 @@
 #' data(data1)
 #' sii_luna(
 #'   health_indicator_type    = "rate",
+#'   unit_analysis            = data1$zone,
 #'   health_numerator         = data1$maternal_deaths,
 #'   health_denominator       = data1$live_births,
 #'   equity_stratifier        = data1$ubn_percent,
@@ -80,6 +81,7 @@
 #' # Example with a proportion indicator (e.g., skilled birth attendance)
 #' data(data2)
 #' sii_luna(
+#'   unit_analysis            = data2$zone,
 #'   health_numerator         = data2$skilled_births,
 #'   health_denominator       = data2$total_births,
 #'   equity_stratifier        = data2$ubn_percent,
@@ -96,6 +98,7 @@
 #' # Example with rate indicator
 #' data(data1)
 #' sii_luna(
+#'   unit_analysis            = data1$zone,
 #'   health_indicator         = data1$mmr,
 #'   equity_stratifier        = data1$ubn_percent,
 #'   population_weights       = data1$population_zone,
@@ -111,6 +114,7 @@
 #' # Example with proportion indicator
 #' data(data2)
 #' sii_luna(
+#'   unit_analysis            = data2$zone,
 #'   health_indicator         = data2$skilled_births_prop,
 #'   equity_stratifier        = data2$ubn_percent,
 #'   population_weights       = data2$population,
@@ -142,6 +146,7 @@
 
 
 sii_luna <- function(health_indicator_type = NULL,
+                unit_analysis = NULL,
                 health_indicator = NULL,
                 population_weights = NULL,
                 health_numerator = NULL,
@@ -191,6 +196,12 @@ sii_luna <- function(health_indicator_type = NULL,
   }
   if (!is.numeric(equity_stratifier)) stop("`equity_stratifier` must be numeric.")
   if (any(is.na(equity_stratifier))) stop("Missing values detected in `equity_stratifier`.")
+
+  # Check Unit analysis
+  if (is.null(unit_analysis)) {
+    stop("You must provide `unit_analysis`.")
+  }
+  if (any(is.na(unit_analysis))) stop("Missing values detected in `unit_analysis`.")
 
   # Check higher equity stratifier is favorable
   if (is.null(higher_ineq_is_favorable)) {
@@ -381,12 +392,14 @@ sii_luna <- function(health_indicator_type = NULL,
   # ────────────────────────────────
   if (!use_num_den) {
     df <- tibble::tibble(
+      unit_analysis = as.character(unit_analysis),
       health_indicator = as.numeric(health_indicator),
       equity_stratifier = as.numeric(equity_stratifier),
       population_weights = as.numeric(population_weights)
     )
   } else {
     df <- tibble::tibble(
+      unit_analysis = as.character(unit_analysis),
       health_indicator = if (health_indicator_type == "proportion") {
         as.numeric(health_numerator) / as.numeric(health_denominator)
       } else {
@@ -912,11 +925,13 @@ sii_luna <- function(health_indicator_type = NULL,
     dplyr::filter(social_position == 1) %>%
     dplyr::pull(2)
 
+  unit_analysis_ext <- c(if (!has_0) "-", df$unit_analysis, if (!has_1) "-")
   social_position_ext <- c(if (!has_0) 0, df$social_position, if (!has_1) 1)
   health_indicator_ext <- c(if (!has_0) NA_real_, df$health_indicator, if (!has_1) NA_real_)
   final_model_pred_ext <- c(if (!has_0) extreme_0, df$final_model_pred, if (!has_1)  extreme_1 )
 
   data_with_extremes <- data.frame(
+    unit_analysis = unit_analysis_ext,
     social_position = social_position_ext,
     health_indicator = health_indicator_ext,
     final_model_pred = final_model_pred_ext

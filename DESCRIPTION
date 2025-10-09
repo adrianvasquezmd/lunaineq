@@ -22,14 +22,14 @@ Imports:
   sandwich,
   emmeans,
   car,
-  optimx
+  optimx,
+  conflicted
 Suggests:
   knitr,
   rmarkdown,
   bookdown,
   spelling,
-  testthat (>= 3.0.0),
-  conflicted
+  testthat (>= 3.0.0)
 Depends: R (>= 4.1.0)
 VignetteBuilder: knitr
 Config/testthat/edition: 3
