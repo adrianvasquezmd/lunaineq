@@ -430,7 +430,7 @@ rci_luna <- function(
     rci_up  <- rci_est + z * rci_se
 
     results_tbl <- tibble::tibble(metric = "Relative concentration index",
-                                  estimate = rci_est,
+                                  value = rci_est,
                                   ci_lower = rci_low,
                                   ci_upper = rci_up,
                                   method = "Fuller")
@@ -452,12 +452,12 @@ rci_luna <- function(
 
       results_tbl <- bind_rows(results_tbl,
                                tibble::tibble(metric = "Relative concentration index (Wagstaff adj.)",
-                                              estimate = est_wag,
+                                              value = est_wag,
                                               ci_lower = ci_wag_low,
                                               ci_upper = ci_wag_up,
                                               method = "Fuller"),
                                tibble::tibble(metric = "Relative concentration index (Erreygers adj.)",
-                                              estimate = est_err,
+                                              value = est_err,
                                               ci_lower = ci_err_low,
                                               ci_upper = ci_err_up,
                                               method = "Fuller"))
@@ -510,7 +510,7 @@ rci_luna <- function(
     rci_up <- ci_mod[2]
 
     results_tbl <- tibble::tibble(metric = "Relative concentration index",
-                                  estimate = rci_est,
+                                  value = rci_est,
                                   ci_lower = rci_low,
                                   ci_upper = rci_up,
                                   method = "Wagstaff & Kakwani")
@@ -541,12 +541,12 @@ rci_luna <- function(
 
       results_tbl <- bind_rows(results_tbl,
                                tibble::tibble(metric = "Relative concentration index (Wagstaff adj.)",
-                                              estimate = est_wag,
+                                              value = est_wag,
                                               ci_lower = ci_wag_low,
                                               ci_upper = ci_wag_up,
                                               method = "Wagstaff & Kakwani"),
                                tibble::tibble(metric = "Relative concentration index (Erreygers adj.)",
-                                              estimate = est_err,
+                                              value = est_err,
                                               ci_lower = ci_err_low,
                                               ci_upper = ci_err_up,
                                               method = "Wagstaff & Kakwani"))

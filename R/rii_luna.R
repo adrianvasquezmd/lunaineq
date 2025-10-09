@@ -903,10 +903,10 @@ rii_luna <- function(health_indicator_type = NULL,
   # Build result row
   summary_table <- data.frame(
     inequality_metric = "Relative index of inequality (RII)",
-    selected_model = if (exists("best_model")) best_model else NA_character_,
     value = rii_est,
     ci_lower = rii_lwr,
     ci_upper = rii_upr,
+    selected_model = if (exists("best_model")) best_model else NA_character_,
     stringsAsFactors = FALSE
   )
 

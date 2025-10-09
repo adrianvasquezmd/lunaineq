@@ -414,7 +414,7 @@ aci_luna <- function(
     rci_up  <- rci_est + z * rci_se *global_health_mean
 
     results_tbl <- tibble::tibble(metric = "Absolute concentration index",
-                                  estimate = rci_est,
+                                  value = rci_est,
                                   ci_lower = rci_low,
                                   ci_upper = rci_up,
                                   method = "Fuller")
@@ -466,7 +466,7 @@ aci_luna <- function(
     rci_up <- ci_mod[2] *global_health_mean
 
     results_tbl <- tibble::tibble(metric = "Absolute concentration index",
-                                  estimate = rci_est,
+                                  value = rci_est,
                                   ci_lower = rci_low,
                                   ci_upper = rci_up,
                                   method = "Wagstaff & Kakwani")

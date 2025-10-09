@@ -905,10 +905,10 @@ sii_luna <- function(health_indicator_type = NULL,
   # Build result row
   summary_table <- data.frame(
     inequality_metric = "Slope index of inequality (SII)",
-    selected_model = if (exists("best_model")) best_model else NA_character_,
     value = sii_est,
     ci_lower = sii_lwr,
     ci_upper = sii_upr,
+    selected_model = if (exists("best_model")) best_model else NA_character_,
     stringsAsFactors = FALSE
   )
 
