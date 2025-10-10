@@ -118,7 +118,7 @@ rci_luna(
   higher_ineq_is_favorable = FALSE,
   rate_scaling_factor      = 100000,
   calculation_method       = "WK",
-  smoothing_factor         = 0.6,
+  smoothing_factor         = 20,
   conf_level               = 0.95,
   language_interpretation  = "en"
 )
@@ -157,7 +157,7 @@ rci_luna(
   higher_ineq_is_favorable = FALSE,
   rate_scaling_factor      = 100000,
   calculation_method       = "WK",
-  smoothing_factor         = 0.6,
+  smoothing_factor         = 20,
   conf_level               = 0.95,
   language_interpretation  = "en"
 )

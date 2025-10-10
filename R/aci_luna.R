@@ -77,7 +77,7 @@
 #'   higher_ineq_is_favorable = FALSE,
 #'   rate_scaling_factor      = 100000,
 #'   calculation_method       = "WK",
-#'   smoothing_factor         = 0.6,
+#'   smoothing_factor         = 20,
 #'   conf_level               = 0.95,
 #'   language_interpretation  = "en"
 #' )
@@ -115,7 +115,7 @@
 #'   higher_ineq_is_favorable = FALSE,
 #'   rate_scaling_factor      = 100000,
 #'   calculation_method       = "WK",
-#'   smoothing_factor         = 0.6,
+#'   smoothing_factor         = 20,
 #'   conf_level               = 0.95,
 #'   language_interpretation  = "en"
 #' )
@@ -453,10 +453,14 @@ aci_luna <- function(
       arrange(cwpop) %>%
       distinct(cwpop, .keep_all = TRUE)
 
-
-    fit_cobs <- cobs(nodos$cwpop, nodos$cwi, constraint = "increase", nknots = smoothing_factor)
-    pred <- predict(fit_cobs, z = df$cwpop)$fit
-    df$func_lorenz <- pmin(pmax(pred, 0), 1)
+    fit_cobs <- cobs::cobs(nodos$cwpop, nodos$cwi, constraint = "increase", nknots = smoothing_factor)
+    pred_raw <- predict(fit_cobs, df$cwpop)
+    pred_y <- if (is.matrix(pred_raw)) {
+      pred_raw[, 2]
+    } else {
+      as.numeric(pred_raw)
+    }
+    df$func_lorenz <- pmin(pmax(pred_y, 0), 1)
 
     # fit_smooth <- stats::smooth.spline(x = nodos$cwpop, y = nodos$cwi, spar = smoothing_factor)
     # df$func_lorenz <- stats::predict(fit_smooth, x = df$cwpop)$y
