@@ -77,7 +77,7 @@
 #'   higher_ineq_is_favorable = FALSE,
 #'   rate_scaling_factor      = 100000,
 #'   calculation_method       = "WK",
-#'   smoothing_factor         = 20,
+#'   smoothing_factor         = 3,
 #'   conf_level               = 0.95,
 #'   language_interpretation  = "en"
 #' )
@@ -115,7 +115,7 @@
 #'   higher_ineq_is_favorable = FALSE,
 #'   rate_scaling_factor      = 100000,
 #'   calculation_method       = "WK",
-#'   smoothing_factor         = 20,
+#'   smoothing_factor         = 3,
 #'   conf_level               = 0.95,
 #'   language_interpretation  = "en"
 #' )
@@ -454,16 +454,20 @@ aci_luna <- function(
       distinct(cwpop, .keep_all = TRUE)
 
     fit_cobs <- cobs::cobs(nodos$cwpop, nodos$cwi, constraint = "increase", nknots = smoothing_factor)
-    pred_raw <- predict(fit_cobs, df$cwpop)
-    pred_y <- if (is.matrix(pred_raw)) {
-      pred_raw[, 2]
-    } else {
-      as.numeric(pred_raw)
-    }
-    df$func_lorenz <- pmin(pmax(pred_y, 0), 1)
+    x_grid <- seq(0, 1, length.out = 1000)
+    pred_raw <- predict(fit_cobs, x_grid)
+    pred_y_grid <- if (is.matrix(pred_raw)) pred_raw[,2] else as.numeric(pred_raw)
+
+    pred_y_grid[1] <- 0
+    pred_y_grid[length(pred_y_grid)] <- 1
+    pred_y_grid <- pmin(pmax(pred_y_grid, 0), 1)
+
+    pred_y_grid <- approx(x_grid, stats::isoreg(x_grid, pred_y_grid)$yf, xout = x_grid)$y
+
+    df$func_lorenz <- approx(x_grid, pred_y_grid, xout = df$cwpop, rule = 2)$y
 
     # fit_smooth <- stats::smooth.spline(x = nodos$cwpop, y = nodos$cwi, spar = smoothing_factor)
-    # df$func_lorenz <- stats::predict(fit_smooth, x = df$cwpop)$y
+    # df$func_lorenz <- stats::predict(fit_smooth, x = nodos$cwpop)$y
     # df$func_lorenz <- pmin(pmax(df$func_lorenz, 0), 1)
     # iso <- stats::isoreg(df$cwpop, df$func_lorenz)
     # df$func_lorenz <- pmin(pmax(approx(iso$x, iso$yf, xout = df$cwpop)$y, 0), 1)
