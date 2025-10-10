@@ -23,7 +23,8 @@ Imports:
   emmeans,
   car,
   optimx,
-  conflicted
+  conflicted,
+  cobs
 Suggests:
   knitr,
   rmarkdown,

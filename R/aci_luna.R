@@ -453,11 +453,16 @@ aci_luna <- function(
       arrange(cwpop) %>%
       distinct(cwpop, .keep_all = TRUE)
 
-    fit_smooth <- stats::smooth.spline(x = nodos$cwpop, y = nodos$cwi, spar = smoothing_factor)
-    df$func_lorenz <- stats::predict(fit_smooth, x = df$cwpop)$y
-    df$func_lorenz <- pmin(pmax(df$func_lorenz, 0), 1)
-    iso <- stats::isoreg(df$cwpop, df$func_lorenz)
-    df$func_lorenz <- pmin(pmax(approx(iso$x, iso$yf, xout = df$cwpop)$y, 0), 1)
+
+    fit_cobs <- cobs(nodos$cwpop, nodos$cwi, constraint = "increase", nknots = smoothing_factor)
+    pred <- predict(fit_cobs, z = df$cwpop)$fit
+    df$func_lorenz <- pmin(pmax(pred, 0), 1)
+
+    # fit_smooth <- stats::smooth.spline(x = nodos$cwpop, y = nodos$cwi, spar = smoothing_factor)
+    # df$func_lorenz <- stats::predict(fit_smooth, x = df$cwpop)$y
+    # df$func_lorenz <- pmin(pmax(df$func_lorenz, 0), 1)
+    # iso <- stats::isoreg(df$cwpop, df$func_lorenz)
+    # df$func_lorenz <- pmin(pmax(approx(iso$x, iso$yf, xout = df$cwpop)$y, 0), 1)
 
     df <- df %>%
       mutate(
