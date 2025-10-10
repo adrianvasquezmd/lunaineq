@@ -216,8 +216,13 @@ rci_luna <- function(
   if (is.null(apply_corrections)) {
     warning("`apply_corrections` not provided: defaulting to FALSE.")
     apply_corrections <- FALSE
+
   } else if (!is.logical(apply_corrections) || length(apply_corrections) != 1) {
     stop("`apply_corrections` must be TRUE or FALSE.")
+
+  } else if (isTRUE(apply_corrections) && health_indicator_type == "rate") {
+    warning("Correction methods are only applicable to bounded metrics such as proportions. `apply_corrections` has been set to FALSE automatically.")
+    apply_corrections <- FALSE
   }
 
   if (calculation_method == "WK") {
