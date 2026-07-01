@@ -1,0 +1,60 @@
+Package: lunaineq
+Title: Health Inequality Metrics for Ecological Data
+Version: 0.1.0
+Authors@R: c(
+    person(
+        given = "Adrian",
+        family = "Vasquez-Mejia",
+        email = "apvasquez.md@gmail.com",
+        role = c("aut", "cre", "cph"),
+        comment = c("Lead developer and principal author")
+    ),
+    person(
+        given = "Oscar J.",
+        family = "Mujica",
+        role = "aut",
+        comment = c("Conceptual contribution and scientific review")
+    ),
+    person(
+        given = "Antonio",
+        family = "Sanhueza",
+        role = "aut",
+        comment = c("Conceptual contribution and scientific review")
+    )
+    )
+Description: Provides tools to estimate health inequality metrics using grouped 
+    ecological data. The package implements the estimation of the Absolute Gap (AG), 
+    Relative Gap (RG), Absolute Concentration Index (ACI), Relative Concentration 
+    Index (RCI), Slope Index of Inequality (SII), and Relative Index of Inequality 
+    (RII). It supports complex grouped-data modeling, nonlinear back-transformations,
+    bounded-outcome corrections (Wagstaff and Erreygers), and extensive uncertainty
+    quantification through analytical variance approximation and resampling techniques 
+    (Bootstrap and Jackknife).
+License: AGPL (>= 3)
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 8.0.0
+Imports:
+    boot,
+    bootstrap,
+    classInt,
+    emmeans,
+    Hmisc,
+    MASS,
+    msm,
+    sandwich,
+    stats,
+    utils
+Suggests:
+    testthat,
+    ggplot2,
+    pkgdown,
+    covr,
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+Depends: 
+    R (>= 4.1.0)
+LazyData: true
+URL: https://adrianvasquezmd.github.io/lunaineq/

@@ -1,0 +1,617 @@
+---
+title: "lunaineq: ecological health inequality metrics"
+author: "Adrian Vasquez-Mejia, Oscar J. Mujica, Antonio Sanhueza"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{lunaineq: ecological health inequality metrics}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+## Purpose of the package
+
+`lunaineq` estimates health inequality metrics from **ecological or grouped data**: one row corresponds to a territorial unit, administrative unit, population group, quintile, region, department, province, district, country, or other aggregate unit. The package is designed for settings in which the analyst has a health indicator and an equity stratifier measured at the same ecological level.
+
+The package currently implements six complementary estimators:
+
+| Family | Function | Estimand | Main epidemiological question |
+|---|---:|---|---|
+| Extreme-group gaps | `ag_ineqeco()` | absolute gap, `Y_disadvantaged - Y_advantaged` | How many units higher/lower is the indicator in the disadvantaged extreme group? |
+| Extreme-group gaps | `rg_ineqeco()` | relative gap, `Y_disadvantaged / Y_advantaged` | How many times higher/lower is the indicator in the disadvantaged extreme group? |
+| Concentration indices | `aci_ineqeco()` | absolute concentration index | What is the absolute inequality accumulated across the whole social distribution? |
+| Concentration indices | `rci_ineqeco()` | relative concentration index | Is the outcome concentrated among advantaged or disadvantaged units, and how strongly? |
+| Regression-based indices | `sii_ineqeco()` | slope index, `Y_advantaged - Y_disadvantaged` | What is the model-predicted absolute difference between the bottom and top of the social hierarchy? |
+| Regression-based indices | `rii_ineqeco()` | relative index, `Y_advantaged / Y_disadvantaged` | What is the model-predicted ratio between the top and bottom of the social hierarchy? |
+
+These metrics should not be interpreted as competing versions of the same number. They answer different questions. AG/RG compare the extremes after grouping. ACI/RCI use the full ranked distribution. SII/RII estimate a gradient-based contrast using regression and population-weighted social position.
+
+## Minimum data structure
+
+A typical dataset should contain:
+
+```{r eval = FALSE}
+head(data)
+#>   unit     equity_stratifier numerator denominator population
+#>   Region A 18.4              14        20200       20200
+#>   Region B 25.7              31        35400       35400
+#>   Region C 39.2              52        40100       40100
+```
+
+At minimum, the data must contain:
+
+1. an ecological-unit identifier, usually supplied through `analysis_unit_var`;
+2. an equity stratifier, supplied through `equity_stratifier_var`;
+3. either a precomputed health indicator through `health_indicator_var`, or numerator/denominator variables through `health_numerator_var` and `health_denominator_var`;
+4. a population/exposure weight, either explicitly through `population_weights_var` or implicitly through `health_denominator_var` when counts are supplied.
+
+Before fitting any metric, subset the data to one analytic period or stratum if the unit identifier is repeated across time:
+
+```{r eval = FALSE}
+df_2020 <- subset(paho_data, year == 2020)
+```
+
+## Directionality: the most important argument
+
+The argument `higher_ineq_is_favorable` controls how the equity stratifier is ordered, not whether the health outcome is good or bad. In the current function interfaces, it is used to decide whether larger values of the equity stratifier correspond to greater advantage.
+
+Use:
+
+```{r eval = FALSE}
+higher_ineq_is_favorable = TRUE
+```
+
+when higher values of the equity stratifier indicate greater social advantage, for example income, wealth index, education, human development index, or service availability.
+
+Use:
+
+```{r eval = FALSE}
+higher_ineq_is_favorable = FALSE
+```
+
+when higher values of the equity stratifier indicate greater social disadvantage, for example poverty, unsatisfied basic needs, deprivation score, marginalization, or vulnerability.
+
+For example, if `equity_stratifier_var = "ubn"` and higher UBN means more deprivation, use `higher_ineq_is_favorable = FALSE`. The functions internally reverse the ordering so that the social-position convention remains interpretable.
+
+## Health indicator inputs
+
+All functions support two input modes.
+
+### Mode 1: raw counts
+
+Use this when the indicator can be constructed as numerator / denominator.
+
+```{r eval = FALSE}
+health_numerator_var   = "maternal_death"
+health_denominator_var = "live_births"
+health_indicator_type  = "rate"
+rate_scaling_factor    = 100000
+```
+
+This is preferred when available because the package can use the denominator as the exposure or population weight and, depending on the function and `ci_method`, can derive uncertainty from counts.
+
+### Mode 2: precomputed indicator
+
+Use this when the indicator is already supplied as a rate, percentage, proportion, ratio, mean, or externally modeled estimate.
+
+```{r eval = FALSE}
+health_indicator_var   = "mmr"
+population_weights_var = "live_births"
+health_indicator_type  = "rate"
+```
+
+If the indicator is precomputed, `population_weights_var` is required for concentration indices and model-based metrics, and strongly recommended for all analyses. If you also have a standard error for the indicator, provide it through `health_se_var` in AG/RG/ACI/RCI. In the current SII/RII implementation, external `health_se_var` is explicitly rejected and uncertainty is estimated using Wald, bootstrap, or jackknife methods.
+
+## Choosing `health_indicator_type`
+
+| Value | Use when | Examples | Notes |
+|---|---|---|---|
+| `"proportion"` | outcome ranges from 0 to 1 | coverage proportion, prevalence proportion | For bounded outcomes; can be modeled as binomial in SII/RII when counts are supplied. |
+| `"percentage"` | outcome ranges from 0 to 100 | vaccination coverage %, skilled birth attendance % | Internally should be interpreted as bounded after conversion. |
+| `"rate"` | events per exposure or population-time | mortality rate, incidence rate, MMR per 100,000 live births | Use `rate_scaling_factor` when constructing from counts. |
+| `"ratio"` | numerator/denominator ratio not necessarily bounded | provider-to-population ratio, facilities per population | Often treated like a scaled rate when constructed from counts. |
+
+## `ag_ineqeco()`: absolute gap between extreme groups
+
+### What it estimates
+
+`ag_ineqeco()` estimates the absolute difference between the most disadvantaged and most advantaged ecological groups:
+
+\[
+AG = Y_D - Y_A
+\]
+
+where `Y_D` is the health indicator in the most disadvantaged group and `Y_A` is the health indicator in the most advantaged group.
+
+### When to use it
+
+Use `ag_ineqeco()` when your main question is absolute public-health burden:
+
+- excess deaths per 100,000 live births in the most deprived group compared with the least deprived group;
+- additional percentage points of low coverage in disadvantaged areas;
+- absolute difference in prevalence between extreme quintiles.
+
+This metric is easy to communicate to policy audiences because it stays on the original health-indicator scale.
+
+### Main arguments
+
+| Argument | What it does | Practical guidance |
+|---|---|---|
+| `data` | Data frame with one row per ecological unit. | Use a single year/period unless repeated units are intended. |
+| `health_indicator_type` | Defines the health-indicator scale. | Use `"rate"` for mortality/incidence rates, `"proportion"` or `"percentage"` for bounded coverage/prevalence. |
+| `health_indicator_var` | Uses a precomputed indicator. | Pair with `population_weights_var`; add `health_se_var` if available for analytic uncertainty. |
+| `health_numerator_var`, `health_denominator_var` | Constructs the indicator from counts. | Preferred for rates/proportions when numerator and denominator are known. |
+| `population_weights_var` | Supplies population/exposure weights. | Required with precomputed indicators; denominator can serve this role for count-based input. |
+| `health_se_var` | Supplies standard errors for group indicators. | Used by the delta method in AG/RG; not used by SII/RII. |
+| `analysis_unit_var` | Identifies ecological units. | Use stable IDs rather than labels when possible. |
+| `equity_stratifier_var` | Orders units by social position. | Must reflect the equity dimension: wealth, deprivation, education, UBN, etc. |
+| `higher_ineq_is_favorable` | Determines whether higher stratifier values mean advantage. | For UBN/deprivation use `FALSE`; for income/wealth use `TRUE`. |
+| `rate_scaling_factor` | Scales count-based rates/ratios. | Use 100,000 for MMR, 1,000 for rates per 1,000, etc. |
+| `grouping_approach` | Determines how units are assigned to comparison groups. | See below. |
+| `territorial_method` | Only used when `grouping_approach = "territorial"`. | Choose the algorithm for grouping ecological units by stratifier values. |
+| `manual_breaks` | User-defined cutpoints. | Only relevant for `territorial_method = "manual"`. |
+| `n_groups` | Number of groups to form. | Use 5 for quintiles, 10 for deciles, 2 for halves. |
+| `ci_method` | Uncertainty method. | `"delta"` for analytic/default, `"bootstrap"` or `"jackknife"` for ecological sensitivity/resampling. |
+| `n_boot` | Number of bootstrap replicates. | Increase for final analyses, e.g. 2000 or more. |
+| `conf_level` | Confidence level. | Usually 0.95. |
+| `seed` | Reproducibility for resampling. | Set for bootstrap. |
+| `verbose` | Prints notes/warnings. | Use `TRUE` while developing; `FALSE` in production reports. |
+
+### Choosing `grouping_approach`
+
+| Value | What it means conceptually | Use when | Interpretation consequence |
+|---|---|---|---|
+| `"territorial"` | Forms groups based on the distribution of the ecological units themselves. | You want quintiles of territories, departments, regions, or districts regardless of their population size. | The extreme groups represent groups of territories, not necessarily equal population shares. |
+| `"weighted_cut"` | Forms groups using population/exposure weighting. | You want the poorest 20% and richest 20% of the population distribution approximated from grouped units. | More population-representative; large units influence group assignment more. |
+| `"weighted_midpoint"` | Uses weighted positioning of units in the ranked population distribution. | You want grouping aligned with the midpoint of each unit's population share. | Useful when units vary greatly in population size. |
+| `"fractional"` | Uses fractional-rank information to define the comparison across the ordered distribution. | You want an ecological approach that respects population ranking rather than only territory counts. | Better aligned with concentration-index and SII/RII logic. |
+
+The exact computational details of `weighted_cut`, `weighted_midpoint`, and `fractional` are implemented in the internal helper `.ag_rg_group_data()`. If this helper changes, this section should be checked against the source code.
+
+### Choosing `territorial_method`
+
+`territorial_method` is only evaluated when `grouping_approach = "territorial"`.
+
+| Value | Use when |
+|---|---|
+| `"quantile"` | You want equally sized groups of ecological units based on quantiles of the stratifier. |
+| `"equal"` | You want equal-width intervals across the stratifier range. |
+| `"kmeans"` | You want data-driven clusters of units with similar stratifier values. |
+| `"fisher"` | You want natural-break style grouping for ordered numeric data. |
+| `"manual"` | You need externally defined thresholds, such as official poverty/deprivation cutpoints. |
+
+### Example
+
+```{r eval = FALSE}
+ag <- ag_ineqeco(
+  data = df_2020,
+  health_indicator_type = "rate",
+  health_numerator_var = "maternal_death",
+  health_denominator_var = "live_births",
+  rate_scaling_factor = 100000,
+  analysis_unit_var = "state",
+  equity_stratifier_var = "ubn",
+  higher_ineq_is_favorable = FALSE,
+  grouping_approach = "fractional",
+  n_groups = 5,
+  ci_method = "delta"
+)
+
+ag$summary_stats
+ag$results_groups
+```
+
+### Epidemiological interpretation
+
+If `AG = 42.5` for maternal mortality per 100,000 live births, then the maternal mortality ratio is estimated to be **42.5 deaths per 100,000 live births higher in the most disadvantaged group than in the most advantaged group**. If the confidence interval excludes 0, the absolute gap is statistically compatible with a non-zero inequality under the selected uncertainty method.
+
+For favorable outcomes such as vaccination coverage, the sign must be interpreted carefully. A negative AG can indicate that coverage is lower in the disadvantaged group, depending on how the package has oriented the contrast and how the outcome is coded. In final reporting, always state both group-specific values from `results_groups`.
+
+## `rg_ineqeco()`: relative gap between extreme groups
+
+### What it estimates
+
+`rg_ineqeco()` estimates the ratio between the most disadvantaged and most advantaged ecological groups:
+
+\[
+RG = \frac{Y_D}{Y_A}
+\]
+
+### When to use it
+
+Use `rg_ineqeco()` when the relevant question is proportional inequality:
+
+- mortality is twice as high in the most deprived group;
+- coverage is 0.75 times as high in the least served group;
+- prevalence is 40% higher in disadvantaged areas.
+
+RG is scale-free and useful for comparing indicators with different units, but it can look large when the advantaged group has a very low baseline value.
+
+### Arguments
+
+The arguments are the same as `ag_ineqeco()`. The main difference is that the output is a ratio rather than a difference.
+
+### Example
+
+```{r eval = FALSE}
+rg <- rg_ineqeco(
+  data = df_2020,
+  health_indicator_type = "rate",
+  health_numerator_var = "maternal_death",
+  health_denominator_var = "live_births",
+  rate_scaling_factor = 100000,
+  analysis_unit_var = "state",
+  equity_stratifier_var = "ubn",
+  higher_ineq_is_favorable = FALSE,
+  grouping_approach = "fractional",
+  n_groups = 5,
+  ci_method = "jackknife"
+)
+
+rg$summary_stats
+rg$results_groups
+```
+
+### Epidemiological interpretation
+
+If `RG = 1.80`, the indicator is estimated to be **1.8 times as high in the most disadvantaged group as in the most advantaged group**. For adverse outcomes, this means excess relative disadvantage. If `RG = 0.70` for a favorable outcome such as service coverage, the disadvantaged group has about **30% lower coverage** than the advantaged group.
+
+When the denominator group has a very small indicator value, report RG together with AG to avoid exaggerating a small absolute difference.
+
+## `aci_ineqeco()`: absolute concentration index
+
+### What it estimates
+
+`aci_ineqeco()` estimates an absolute concentration-index measure over the entire ranked social distribution. It is linked to the concentration index but expressed on the absolute scale of the health outcome. It answers how much absolute inequality is distributed along the socioeconomic ranking.
+
+### When to use it
+
+Use `aci_ineqeco()` when you want a whole-distribution measure but still want an absolute interpretation. It is useful when policy relevance depends on excess number of events, percentage points, or rate units rather than only relative concentration.
+
+### Main arguments
+
+| Argument | What it does | Practical guidance |
+|---|---|---|
+| `data` | Ecological-unit data. | One row per unit or group. |
+| `health_indicator_type` | Indicator scale. | Same interpretation as above. |
+| `health_indicator_var` | Uses a precomputed indicator. | Requires `population_weights_var`. |
+| `health_numerator_var`, `health_denominator_var` | Constructs indicator from counts. | Denominator is used as exposure/weight if `population_weights_var` is omitted. |
+| `health_se_var` | Supplies unit-level standard error. | Used in analytic variance approximation when available. |
+| `rate_scaling_factor` | Scales count-derived rate/ratio. | Only applies when constructing the indicator from counts. |
+| `population_weights_var` | Population/exposure weights. | Determines population shares in the concentration curve. |
+| `equity_stratifier_var` | Ranking variable. | The curve and index are based on this ranking. |
+| `analysis_unit_var` | Unit identifier. | Optional in interface but recommended. |
+| `higher_ineq_is_favorable` | Direction of the equity stratifier. | Use `FALSE` for deprivation variables like UBN. |
+| `ci_method` | `"analytic"`, `"bootstrap"`, or `"jackknife"`. | `analytic` is efficient; resampling can be used for sensitivity. |
+| `n_boot` | Bootstrap replicates. | Only used with `ci_method = "bootstrap"`. |
+| `conf_level` | Confidence level. | Usually 0.95. |
+| `add_smoothed_curves` | Adds smoothed curve data. | Visualization only; does not affect estimates. |
+| `smoothing_methods` | `"ml"`, `"loess"`, or both. | Only if smoothed curves are requested. |
+| `loess_span` | Smoothing span. | Larger values produce smoother curves. |
+| `seed` | Reproducibility. | Set for bootstrap. |
+| `include_replicates` | Stores bootstrap/jackknife estimates. | Set `FALSE` for smaller output objects. |
+| `verbose` | Progress messages. | Usually `FALSE` in reports. |
+
+### Example
+
+```{r eval = FALSE}
+aci <- aci_ineqeco(
+  data = df_2020,
+  health_indicator_type = "rate",
+  health_numerator_var = "maternal_death",
+  health_denominator_var = "live_births",
+  rate_scaling_factor = 100000,
+  analysis_unit_var = "state",
+  equity_stratifier_var = "ubn",
+  higher_ineq_is_favorable = FALSE,
+  ci_method = "analytic",
+  add_smoothed_curves = TRUE
+)
+
+aci$summary_stats
+aci$results_overall
+aci$results_curve
+```
+
+### Epidemiological interpretation
+
+The sign indicates the direction of concentration after the equity ranking has been oriented. A non-zero ACI means that the health indicator is unequally distributed across the socioeconomic ranking. Because ACI is absolute, it should be interpreted in the units of the health indicator. For example, an ACI for MMR remains connected to deaths per 100,000 live births rather than being only a unitless concentration measure.
+
+## `rci_ineqeco()`: relative concentration index
+
+### What it estimates
+
+`rci_ineqeco()` estimates the relative concentration index:
+
+\[
+C = \frac{2}{\mu} \sum_i f_i y_i R_i - 1
+\]
+
+where `y_i` is the health indicator for ecological unit `i`, `f_i` is the population/exposure share, `R_i` is the fractional rank in the social distribution, and `mu` is the weighted mean health indicator.
+
+The function also returns ACI as an additional metric and can compute bounded-outcome corrections when requested.
+
+### When to use it
+
+Use `rci_ineqeco()` when your question is about **relative concentration across the entire distribution**, not only the extremes.
+
+This is particularly useful for:
+
+- comparing inequality across countries or years;
+- examining whether an adverse outcome is disproportionately concentrated among poorer/deprived units;
+- generating concentration curves for visualization;
+- decompositions or further health-equity analyses that require a concentration-index framework.
+
+### Additional RCI-specific arguments
+
+| Argument | What it does | Practical guidance |
+|---|---|---|
+| `health_lower_bound` | Lower theoretical bound of the outcome. | Defaults to 0 for proportions/percentages. |
+| `health_upper_bound` | Upper theoretical bound of the outcome. | Defaults to 1 after internal conversion for proportions/percentages. |
+| `bounded_corrections` | Requests correction for bounded outcomes. | See below. |
+
+### Choosing `bounded_corrections`
+
+| Value | Use when | Output expectation |
+|---|---|---|
+| `"auto"` | You have a bounded outcome such as coverage/prevalence and want standard corrected alternatives. | Computes both Wagstaff-normalized and Erreygers-corrected estimates when applicable. |
+| `"none"` | The outcome is unbounded or correction is not desired. | Returns the standard RCI/ACI results. |
+| `"wagstaff"` | You specifically want Wagstaff normalization. | Returns Wagstaff-normalized RCI. |
+| `"erreygers"` | You specifically want Erreygers correction. | Returns Erreygers-corrected estimate. |
+| `"both"` | You want both corrections explicitly. | Returns both corrected metrics. |
+
+For rates and ratios such as MMR, bounded corrections are usually not appropriate unless a meaningful theoretical lower and upper bound exists.
+
+### Example
+
+```{r eval = FALSE}
+rci <- rci_ineqeco(
+  data = df_2020,
+  health_indicator_type = "rate",
+  health_numerator_var = "maternal_death",
+  health_denominator_var = "live_births",
+  rate_scaling_factor = 100000,
+  analysis_unit_var = "state",
+  equity_stratifier_var = "ubn",
+  higher_ineq_is_favorable = FALSE,
+  bounded_corrections = "none",
+  ci_method = "bootstrap",
+  n_boot = 1000,
+  seed = 123
+)
+
+rci$summary_stats
+rci$results_overall
+rci$results_curve
+```
+
+### Epidemiological interpretation
+
+An RCI close to 0 indicates little socioeconomic-related concentration. A positive or negative value indicates that the indicator is concentrated toward one end of the social hierarchy. The direction must be interpreted according to the internal ranking convention and the value of `higher_ineq_is_favorable`. For publication, do not report only “positive” or “negative”; explicitly state whether the outcome is concentrated among disadvantaged or advantaged units.
+
+For adverse outcomes, a concentration among disadvantaged units represents pro-rich inequality in health. For favorable outcomes, concentration among advantaged units indicates that benefits are disproportionately located in better-off units.
+
+## `sii_ineqeco()`: slope index of inequality
+
+### What it estimates
+
+`sii_ineqeco()` uses a population-weighted social-position variable and model-based prediction to estimate:
+
+\[
+SII = Y_{advantaged} - Y_{disadvantaged}
+\]
+
+The shared convention in the SII/RII workflow is:
+
+- social position 0 = most disadvantaged;
+- social position 1 = most advantaged.
+
+The selected model predicts the health outcome at the disadvantaged and advantaged ends of the hierarchy. SII is the absolute difference between those predicted values.
+
+### When to use it
+
+Use `sii_ineqeco()` when you want a regression-based absolute gradient measure that accounts for the whole ranked population distribution rather than only comparing observed extreme groups.
+
+Typical uses:
+
+- monitoring absolute inequality over time;
+- estimating the difference between the theoretical bottom and top of the social hierarchy;
+- comparing with RII to separate absolute and relative inequality;
+- working with data where the gradient is more informative than a simple extreme-group contrast.
+
+### Main arguments
+
+| Argument | What it does | Practical guidance |
+|---|---|---|
+| `models` | Candidate model set. | `NULL` lets the function evaluate allowed models; specify a subset for a planned analysis. |
+| `model_selection_metric` | Selects the best model. | Use `MSE`, `RMSE`, or `MAE` for most applications; use AIC/BIC only for likelihood-comparable sets. |
+| `social_position_method` | Defines prediction extremes. | `"classic"` predicts at 0 and 1; `"bounded"` predicts at observed min/max social position. |
+| `ci_method` | Uncertainty interval. | `"wald"`, `"bootstrap"`, or `"jackknife"`. |
+| `vcov_type` | Robust covariance type for Wald intervals. | Default `"HC1"`; passed to `sandwich::vcovHC()` when available. |
+| `...` | Reserved. | Unsupported arguments stop with actionable messages; `health_se_var` is not accepted. |
+
+All general health-indicator and equity-stratifier arguments are the same as described earlier.
+
+### Choosing `models`
+
+The validation and fitting helpers determine which models are allowed for the selected input type. The model-selection helper confirms that candidate models were generated during validation and then selects only among fitted, converged models with valid predictions.
+
+From the selection engine, AIC/BIC comparability is explicitly limited:
+
+- for count-based rates/ratios, AIC/BIC are meaningful only for likelihood-comparable models such as `c("poisson", "negative_binomial")`;
+- for count-based proportions/percentages, AIC/BIC are meaningful only for binomial-only selection;
+- otherwise use final-outcome-scale prediction metrics such as MSE, RMSE, MAE, or MAPE.
+
+### Choosing `model_selection_metric`
+
+| Metric | What it measures | Best use |
+|---|---|---|
+| `"MSE"` | Weighted mean squared prediction error. | Default-like choice when larger errors should be penalized more. |
+| `"RMSE"` | Square root of MSE on the outcome scale. | Easier to interpret than MSE because units match the outcome. |
+| `"MAE"` | Weighted mean absolute prediction error. | More robust to outlying prediction errors. |
+| `"MAPE"` | Weighted mean absolute percentage error. | Only when observed outcomes are never zero. The function stops if zeros are present. |
+| `"AIC"` | Likelihood-based information criterion. | Only for likelihood-comparable model sets. |
+| `"BIC"` | Likelihood-based information criterion with stronger complexity penalty. | Only for likelihood-comparable model sets. |
+
+The selection engine computes MAE/MSE/RMSE/MAPE on the final, back-transformed outcome scale and weights them by population/exposure weights. This is important because models fitted on transformed scales are not compared on their transformed linear predictors.
+
+### Choosing `social_position_method`
+
+| Value | What it does | Use when |
+|---|---|---|
+| `"classic"` | Predicts at social position 0 and 1. | You want the conventional SII/RII interpretation: contrast between the theoretical lowest and highest social position. |
+| `"bounded"` | Predicts at the observed minimum and maximum social position. | You want to avoid extrapolating beyond the observed ranked distribution, especially with few ecological units or incomplete social-position coverage. |
+
+### Example
+
+```{r eval = FALSE}
+sii <- sii_ineqeco(
+  data = df_2020,
+  health_indicator_type = "rate",
+  health_numerator_var = "maternal_death",
+  health_denominator_var = "live_births",
+  rate_scaling_factor = 100000,
+  analysis_unit_var = "state",
+  equity_stratifier_var = "ubn",
+  higher_ineq_is_favorable = FALSE,
+  models = NULL,
+  model_selection_metric = "RMSE",
+  social_position_method = "classic",
+  ci_method = "wald",
+  vcov_type = "HC1"
+)
+
+sii$summary_stats
+sii$model_selection_table
+sii$results_units
+```
+
+### Epidemiological interpretation
+
+If `SII = -35.0` for a favorable outcome such as coverage, the predicted coverage at the advantaged end may be 35 percentage points higher than at the disadvantaged end, depending on the sign convention used in the output. If `SII = -35.0` for an adverse outcome and the estimand is `Y_advantaged - Y_disadvantaged`, then the advantaged end has 35 fewer adverse events per unit than the disadvantaged end. For clarity, report the two predicted endpoint values whenever available, not only the SII.
+
+## `rii_ineqeco()`: relative index of inequality
+
+### What it estimates
+
+`rii_ineqeco()` estimates:
+
+\[
+RII = \frac{Y_{advantaged}}{Y_{disadvantaged}}
+\]
+
+For binomial and quasibinomial models, the RII is computed as a ratio of predicted probabilities on the response scale. It is **not** an odds ratio.
+
+### When to use it
+
+Use `rii_ineqeco()` when you want the relative version of the regression-based social gradient. It is useful for comparing inequality across indicators or settings where baseline levels differ.
+
+### Arguments
+
+The arguments are the same as `sii_ineqeco()`.
+
+### Example
+
+```{r eval = FALSE}
+rii <- rii_ineqeco(
+  data = df_2020,
+  health_indicator_type = "rate",
+  health_numerator_var = "maternal_death",
+  health_denominator_var = "live_births",
+  rate_scaling_factor = 100000,
+  analysis_unit_var = "state",
+  equity_stratifier_var = "ubn",
+  higher_ineq_is_favorable = FALSE,
+  models = NULL,
+  model_selection_metric = "RMSE",
+  social_position_method = "classic",
+  ci_method = "bootstrap",
+  n_boot = 1000,
+  seed = 123
+)
+
+rii$summary_stats
+rii$model_selection_table
+```
+
+### Epidemiological interpretation
+
+If `RII = 0.60` and the estimand is `Y_advantaged / Y_disadvantaged`, the predicted indicator at the advantaged end is 60% of the predicted indicator at the disadvantaged end. For an adverse outcome, this means the disadvantaged end has a higher burden. If `RII = 1.50`, the advantaged end has a 50% higher predicted value than the disadvantaged end.
+
+Do not interpret RII from binomial models as an odds ratio. It is a ratio of predicted probabilities or predicted outcome values on the response scale.
+
+## Uncertainty intervals
+
+| Method | Functions | Meaning | Recommended use |
+|---|---|---|---|
+| `"delta"` | AG/RG | Analytic/delta approximation based on counts or supplied SE when available. | Fast default for extreme-group gaps. |
+| `"analytic"` | ACI/RCI | Grouped-data analytic variance approximation. | Standard reporting when assumptions are reasonable. |
+| `"wald"` | SII/RII | Model-based Wald interval, using robust covariance when available. | Default for SII/RII exploratory and reporting workflows. |
+| `"bootstrap"` | all families | Resampling-based interval. | Sensitivity analysis or final reports where resampling is preferred. |
+| `"jackknife"` | all families | Leave-one-unit-out resampling. | Sensitivity to influential ecological units. |
+
+For ecological data, bootstrap and jackknife intervals should be interpreted as uncertainty/sensitivity under the ecological-unit resampling scheme, not as a substitute for individual-level sampling designs unless those assumptions are justified.
+
+## Recommended reporting templates
+
+### AG/RG
+
+> The absolute gap in [indicator] between the most disadvantaged and most advantaged ecological groups was [AG] [units] (95% CI [L, U]), using [grouping approach] grouping into [n] groups. The corresponding relative gap was [RG] (95% CI [L, U]).
+
+### ACI/RCI
+
+> The relative concentration index for [indicator] was [RCI] (95% CI [L, U]), indicating that the indicator was concentrated among [disadvantaged/advantaged] ecological units. The absolute concentration index was [ACI], preserving the original [indicator] scale.
+
+### SII/RII
+
+> Using a population-weighted social-position model, the slope index of inequality was [SII] [units] (95% CI [L, U]), comparing the predicted value at the advantaged end with the predicted value at the disadvantaged end of the social hierarchy. The relative index of inequality was [RII] (95% CI [L, U]). The selected model was [model], chosen by [metric] on the final outcome scale.
+
+## Practical workflow
+
+A recommended analysis workflow is:
+
+1. Inspect the dataset and confirm one row per ecological unit per analytic period.
+2. Decide whether the outcome is adverse or favorable, and separately decide whether the stratifier increases with advantage or disadvantage.
+3. Run AG and RG for simple extreme-group communication.
+4. Run RCI/ACI for whole-distribution inequality and concentration curves.
+5. Run SII/RII for regression-based gradient estimates.
+6. Compare absolute and relative metrics together; do not rely on a single metric.
+7. Report the grouping method, rank orientation, input type, rate scaling factor, model-selection metric, and uncertainty method.
+
+## Common mistakes
+
+| Mistake | Consequence | Fix |
+|---|---|---|
+| Combining multiple years without subsetting. | Ecological units are duplicated; ranks and weights become ambiguous. | Analyze one year at a time or include year-specific workflows. |
+| Using `higher_ineq_is_favorable = TRUE` for deprivation variables. | The social order may be reversed. | Use `FALSE` for poverty, UBN, marginalization, vulnerability. |
+| Reporting RII from binomial models as an odds ratio. | Incorrect epidemiological interpretation. | Report it as a ratio of predicted probabilities. |
+| Using AIC/BIC across non-comparable models. | Invalid model choice. | Use MSE/RMSE/MAE or restrict to comparable likelihood models. |
+| Reporting only relative inequality. | Can hide small absolute differences. | Report AG/SII or ACI together with RG/RII/RCI. |
+| Applying bounded corrections to unbounded rates. | Methodologically inappropriate correction. | Use corrections mainly for bounded outcomes such as proportions/percentages. |
+
+## Objects returned by the functions
+
+The object names differ by family, but the common structure is designed for auditing:
+
+| Component | Meaning |
+|---|---|
+| `summary_stats` | Main scalar estimates for quick reporting. |
+| `results_overall` | Estimates, standard errors, confidence intervals, and often multiple metrics. |
+| `results_groups` | AG/RG grouped-data summary. |
+| `results_units` | Prepared ecological-unit data used by ACI/RCI/SII/RII. |
+| `results_curve` | Empirical and optional smoothed concentration-curve data. |
+| `results_replicates` | Bootstrap/jackknife replicate estimates when included. |
+| `model_selection_table` | Candidate model diagnostics and selection metrics for SII/RII. |
+| `methodology` | Metadata documenting choices made during validation, preparation, estimation, and interval construction. |
+| `diagnostics` | Warnings, failures, excluded models, and workflow checks. |
+
+Always inspect `methodology`, `diagnostics`, and, for SII/RII, `model_selection_table` before final reporting.

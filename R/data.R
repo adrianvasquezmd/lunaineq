@@ -1,0 +1,21 @@
+#' PAHO Health Inequality Mock Data
+#'
+#' @description
+#' A synthetic, longitudinal ecological dataset simulating subnational health outcomes
+#' and socioeconomic indicators. Designed for demonstrating and testing the
+#' `lunaineq` package's inequality metrics, including Absolute/Relative Gaps (AG/RG),
+#' Absolute/Relative Concentration Indices (ACI/RCI), and Slope/Relative Indices of Inequality (SII/RII).
+#'
+#' @format A tibble with 80 rows and 7 variables representing subnational states over time:
+#' \describe{
+#'   \item{year}{Numeric. The year of observation (e.g., 2005, 2010).}
+#'   \item{state}{Character. The name of the subnational ecological unit (e.g., "State A").}
+#'   \item{maternal_death}{Numeric. The number of maternal deaths (numerator count).}
+#'   \item{live_births}{Numeric. The number of live births (denominator count / population exposure).}
+#'   \item{mmr}{Numeric. The Maternal Mortality Ratio (MMR) per 100,000 live births.}
+#'   \item{mmr_se}{Numeric. The analytical standard error of the MMR estimate.}
+#'   \item{ubn}{Numeric. Unsatisfied Basic Needs (UBN) percentage, acting as the socioeconomic stratifier. Lower values indicate better socioeconomic status.}
+#' }
+#'
+#' @source Simulated synthetic data for methodological demonstration.
+"paho_data"
